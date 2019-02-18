@@ -1,10 +1,26 @@
 # keras_summary
-## 自定义损失函数
-### 
+## 动态显存
 ```python
-
-
+import keras.backend.tensorflow_backend as KTF
+import tensorflow as tf
+tf_config = tf.ConfigProto()
+tf_config.gpu_options.allow_growth = True
+sess = tf.Session(config=tf_config)
+KTF.set_session(sess)
 ```
+
+## 自定义损失函数
+### score_loss(marco f1_score)
+```python
+def score_loss(y_true, y_pred):
+    loss = 0
+    for i in np.eye(num_classes):
+        y_true_ = K.constant([list(i)]) * y_true
+        y_pred_ = K.constant([list(i)]) * y_pred
+        loss += 0.5 * K.sum(y_true_ * y_pred_) / K.sum(y_true_ + y_pred_ + K.epsilon())
+    return - K.log(loss + K.epsilon())
+```
+
 ## 自定义层
 ### Attentionceng
 ```python
@@ -185,6 +201,38 @@ from keras.models import multi_gpu_model
 parallel_model = multi_gpu_model(model, 8)
 ```
 ### 保存
+方法1
 ```python
+class ParallelModelCheckpoint(ModelCheckpoint):
+    def __init__(self,model,filepath, monitor='val_loss', verbose=0,
+                 save_best_only=False, save_weights_only=False,
+                 mode='auto', period=1):
+        self.single_model = model
+        super(ParallelModelCheckpoint,self).__init__(filepath, monitor, verbose,save_best_only, save_weights_only,mode, period)
 
+    def set_model(self, model):
+        super(ParallelModelCheckpoint,self).set_model(self.single_model)
+
+check_point = ParallelModelCheckpoint(single_model ,'best.hd5')
+```
+方法2
+```python
+class CustomModelCheckpoint(keras.callbacks.Callback):
+
+    def __init__(self, model, path):
+        self.model = model
+        self.path = path
+        self.best_loss = np.inf
+
+    def on_epoch_end(self, epoch, logs=None):
+        val_loss = logs['val_loss']
+        if val_loss < self.best_loss:
+            print("\nValidation loss decreased from {} to {}, saving model".format(self.best_loss, val_loss))
+            self.model.save_weights(self.path, overwrite=True)
+            self.best_loss = val_loss
+            
+model.fit(X_train, y_train,
+              batch_size=batch_size*G, epochs=nb_epoch, verbose=0, shuffle=True,
+              validation_data=(X_valid, y_valid),
+              callbacks=[CustomModelCheckpoint(model, '/path/to/save/model.h5')])
 ```
